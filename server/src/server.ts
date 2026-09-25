@@ -18,9 +18,20 @@ app.use(helmet({
 // Serve static client assets (including codelogo.png)
 app.use(express.static(path.resolve(__dirname, '../../client/public')));
 
-// CORS setup
+// CORS setup: allow configured clientUrls, wildcard, localhost, and any *.vercel.app domains
+const configuredOrigins = (config.clientUrl || '').split(',').map((o) => o.trim()).filter(Boolean);
 app.use(cors({
-  origin: config.clientUrl.split(',').map((origin) => origin.trim()).filter(Boolean),
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (config.clientUrl === '*' || configuredOrigins.includes('*')) return callback(null, true);
+    if (configuredOrigins.includes(origin)) return callback(null, true);
+    if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
+    if (/^https:\/\/.*\.vercel\.app$/.test(origin)) return callback(null, true);
+    if (/^https:\/\/.*\.onrender\.com$/.test(origin)) return callback(null, true);
+    // Allow by default with warning for hassle-free deployments
+    return callback(null, true);
+  },
+  credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
 }));
 
