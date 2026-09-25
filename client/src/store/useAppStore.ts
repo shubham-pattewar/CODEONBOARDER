@@ -164,9 +164,11 @@ export const useAppStore = create<AppState>((set) => ({
 
   setAnalysis: (analysis) => {
     if (analysis) {
-      const id = analysis._id || analysis.id;
-      if (id && typeof window !== 'undefined') {
-        window.location.hash = `/analysis/${id}`;
+      const slug = (analysis.owner && analysis.repo)
+        ? `${analysis.owner}/${analysis.repo}`
+        : (analysis.repo || analysis._id || analysis.id);
+      if (slug && typeof window !== 'undefined') {
+        window.location.hash = `/analysis/${slug}`;
       }
     }
     set({

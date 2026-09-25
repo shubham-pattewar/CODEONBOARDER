@@ -32,22 +32,29 @@ export const App: React.FC = () => {
     }
   }, [theme]);
 
-  // Sync shareable URL hash: Load analysis if URL contains #/analysis/:id
+  // Sync shareable URL hash: Load analysis if URL contains #/analysis/:slug or #/analysis/:id
   useEffect(() => {
     const handleHash = async () => {
       const hash = window.location.hash;
-      const match = hash.match(/^#\/analysis\/([a-zA-Z0-9_-]+)/);
+      const match = hash.match(/^#\/analysis\/(.+)/);
       if (match && match[1]) {
-        const targetId = match[1];
-        if (analysis?._id === targetId || analysis?.id === targetId) return;
+        const targetSlug = decodeURIComponent(match[1].trim());
+        const currentSlug = analysis?.owner && analysis?.repo ? `${analysis.owner}/${analysis.repo}` : (analysis?._id || analysis?.id);
+        if (currentSlug === targetSlug || analysis?.repo?.toLowerCase() === targetSlug.toLowerCase()) return;
 
         try {
-          setJobProgress('cloning', 50, 'Loading shared analysis...');
-          const data = await fetchAnalysisResult(targetId);
+          setJobProgress('building_graph', 50, 'Loading workspace...');
+          const data = await fetchAnalysisResult(targetSlug);
           setAnalysis(data);
+          setJobProgress('done', 100, 'Loaded analysis!');
         } catch (err: any) {
-          console.error('Failed to load shared analysis:', err);
-          setJobProgress('error', 0, 'Could not find shared analysis');
+          // If not cached yet, but it looks like an owner/repo slug, automatically trigger analysis!
+          if (targetSlug.includes('/') && !targetSlug.startsWith('mem_')) {
+            handleAnalyze(`https://github.com/${targetSlug}`);
+          } else {
+            console.error('Failed to load shared analysis:', err);
+            setJobProgress('error', 0, 'Could not find shared analysis');
+          }
         }
       }
     };
@@ -55,7 +62,7 @@ export const App: React.FC = () => {
     handleHash();
     window.addEventListener('hashchange', handleHash);
     return () => window.removeEventListener('hashchange', handleHash);
-  }, []);
+  }, [analysis]);
 
   // Cleanup SSE on unmount
   useEffect(() => () => closeJobStream.current?.(), []);

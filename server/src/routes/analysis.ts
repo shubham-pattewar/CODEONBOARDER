@@ -82,20 +82,51 @@ analysisRouter.get('/', async (_req: Request, res: Response): Promise<void> => {
  * GET /api/analysis/:id
  * Fetches the full analysis payload
  */
-analysisRouter.get('/:id', async (req: Request, res: Response): Promise<void> => {
-  const { id } = req.params;
+analysisRouter.get('/:id(*)', async (req: Request, res: Response): Promise<void> => {
+  const id = decodeURIComponent(req.params.id || '');
 
   try {
     let doc: any = null;
 
-    // Check MongoDB if connected and valid ObjectId
+    // 1. Check MongoDB if connected and valid ObjectId
     if (mongoose.connection.readyState === 1 && id.match(/^[0-9a-fA-F]{24}$/)) {
       doc = await Analysis.findById(id).lean();
     }
 
-    // Check fallback in-memory cache
+    // 2. Check fallback in-memory cache by exact ID
     if (!doc && (global as any).__analysisCache) {
       doc = (global as any).__analysisCache.get(id);
+    }
+
+    // 3. Check by owner/repo or repo name slug (e.g. "expressjs/express" or "FoodSafe")
+    if (!doc) {
+      const cleanSlug = id.toLowerCase().replace(/\.git$/, '');
+
+      // Check in-memory cache
+      if ((global as any).__analysisCache) {
+        for (const [_, cached] of (global as any).__analysisCache.entries()) {
+          const ownerRepo = `${cached.owner || ''}/${cached.repo || ''}`.toLowerCase();
+          if (ownerRepo === cleanSlug || cached.repo?.toLowerCase() === cleanSlug) {
+            doc = cached;
+            break;
+          }
+        }
+      }
+
+      // Check MongoDB
+      if (!doc && mongoose.connection.readyState === 1) {
+        const parts = cleanSlug.split('/').filter(Boolean);
+        if (parts.length === 2) {
+          doc = await Analysis.findOne({
+            owner: new RegExp(`^${parts[0]}$`, 'i'),
+            repo: new RegExp(`^${parts[1]}$`, 'i'),
+          }).sort({ createdAt: -1 }).lean();
+        } else if (parts.length === 1) {
+          doc = await Analysis.findOne({
+            repo: new RegExp(`^${parts[0]}$`, 'i'),
+          }).sort({ createdAt: -1 }).lean();
+        }
+      }
     }
 
     if (!doc) {
