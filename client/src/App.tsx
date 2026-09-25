@@ -68,21 +68,29 @@ export const App: React.FC = () => {
       const response = await requestAnalysis(url, githubToken, forceRefresh);
 
       if (response.cached && response.analysisId && !forceRefresh) {
-        setJobProgress('done', 100, 'Loaded from cache!');
+        setJobProgress('building_graph', 100, 'Loading cached workspace...');
         const data = await fetchAnalysisResult(response.analysisId);
         setAnalysis(data);
+        setJobProgress('done', 100, 'Loaded from cache!');
         return;
       }
 
       const jobId = response.jobId;
 
       const applyUpdate = async (job: Awaited<ReturnType<typeof getJobStatus>>) => {
-        setJobProgress(job.status, job.progress, job.message, job.error);
         if (job.status === 'done' && job.analysisId) {
           closeJobStream.current?.();
-          const data = await fetchAnalysisResult(job.analysisId);
-          setAnalysis(data);
+          setJobProgress('building_graph', 100, 'Opening interactive workspace...');
+          try {
+            const data = await fetchAnalysisResult(job.analysisId);
+            setAnalysis(data);
+            setJobProgress('done', 100, 'Analysis complete!');
+          } catch (err: any) {
+            setJobProgress('error', 0, 'Failed to load analysis result', err.message);
+          }
+          return;
         }
+        setJobProgress(job.status, job.progress, job.message, job.error);
       };
 
       closeJobStream.current = subscribeToJob(jobId, applyUpdate, () => {

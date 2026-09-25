@@ -134,7 +134,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAnalyze }) => {
     validateAndSubmit(repoUrl);
   };
 
-  const isAnalyzing = jobStatus === 'cloning' || jobStatus === 'scanning' || jobStatus === 'building_graph' || jobStatus === 'error';
+  const isAnalyzing = jobStatus === 'cloning' || jobStatus === 'scanning' || jobStatus === 'building_graph' || jobStatus === 'done' || jobStatus === 'error';
 
   return (
     <div className="min-h-screen flex flex-col overflow-hidden relative"
