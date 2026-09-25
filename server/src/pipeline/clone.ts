@@ -37,7 +37,7 @@ export async function getRepositoryInfo(
     'User-Agent': 'codebase-onboarder',
   };
 
-  const cleanToken = token?.trim();
+  const cleanToken = token?.trim() || process.env.GITHUB_TOKEN?.trim();
   if (cleanToken) {
     headers['Authorization'] = `token ${cleanToken}`;
   }

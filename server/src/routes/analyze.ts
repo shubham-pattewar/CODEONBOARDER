@@ -45,11 +45,11 @@ analyzeRouter.post('/', async (req: Request, res: Response): Promise<void> => {
   const repo = match[2].replace(/\.git$/, '');
   const normalizedUrl = `https://github.com/${owner}/${repo}`;
 
-  // Resolve the head commit before reading cache (unless forceRefresh is requested)
+  // Attempt to resolve head commit from GitHub API for instantaneous cache hit if available
   try {
     const repoInfo = await getPublicRepositoryInfo(owner, repo, token);
 
-    if (!forceRefresh) {
+    if (!forceRefresh && repoInfo?.commitSha) {
       if (mongoose.connection.readyState === 1) {
         const cached = await Analysis.findOne({ repoUrl: normalizedUrl, commitSha: repoInfo.commitSha }).lean();
         if (cached) {
@@ -68,8 +68,9 @@ analyzeRouter.post('/', async (req: Request, res: Response): Promise<void> => {
       }
     }
   } catch (error: any) {
-    res.status(400).json({ error: error?.message || 'Unable to validate this GitHub repository.' });
-    return;
+    // If GitHub REST API is rate limited (very common on shared cloud host IPs like Render/AWS) or private,
+    // do NOT block the user. Proceed directly to git clone, which uses the Git protocol without REST API limits.
+    console.warn(`[Pre-check Notice] Could not fetch GitHub API metadata for ${owner}/${repo}: ${error?.message}. Proceeding directly to clone.`);
   }
 
   const jobId = crypto.randomUUID();
