@@ -1,0 +1,178 @@
+import React, { useEffect, useRef } from 'react';
+import { useAppStore } from './store/useAppStore';
+import { TopBar } from './components/layout/TopBar';
+import { LeftSidebar } from './components/layout/LeftSidebar';
+import { RightDetailsPanel } from './components/layout/RightDetailsPanel';
+import { LandingPage } from './components/landing/LandingPage';
+import { GraphCanvas } from './components/canvas/GraphCanvas';
+import { CommandPalette } from './components/layout/CommandPalette';
+import { HistoryModal } from './components/layout/HistoryModal';
+import { PatModal } from './components/layout/PatModal';
+import { requestAnalysis, getJobStatus, fetchAnalysisResult, fetchMermaidExport, subscribeToJob } from './api/client';
+import { exportCanvasAsPng, exportCanvasAsSvg, downloadTextFile } from './utils/exportDiagram';
+
+export const App: React.FC = () => {
+  const {
+    theme,
+    analysis,
+    jobStatus,
+    setJobProgress,
+    setAnalysis,
+    githubToken,
+  } = useAppStore();
+
+  const closeJobStream = useRef<(() => void) | null>(null);
+
+  // Apply theme class to <html>
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme]);
+
+  // Sync shareable URL hash: Load analysis if URL contains #/analysis/:id
+  useEffect(() => {
+    const handleHash = async () => {
+      const hash = window.location.hash;
+      const match = hash.match(/^#\/analysis\/([a-zA-Z0-9_-]+)/);
+      if (match && match[1]) {
+        const targetId = match[1];
+        if (analysis?._id === targetId || analysis?.id === targetId) return;
+
+        try {
+          setJobProgress('cloning', 50, 'Loading shared analysis...');
+          const data = await fetchAnalysisResult(targetId);
+          setAnalysis(data);
+        } catch (err: any) {
+          console.error('Failed to load shared analysis:', err);
+          setJobProgress('error', 0, 'Could not find shared analysis');
+        }
+      }
+    };
+
+    handleHash();
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  }, []);
+
+  // Cleanup SSE on unmount
+  useEffect(() => () => closeJobStream.current?.(), []);
+
+  const handleAnalyze = async (url: string, forceRefresh = false) => {
+    try {
+      closeJobStream.current?.();
+      setJobProgress('cloning', 10, forceRefresh ? 'Forcing refresh from GitHub...' : 'Initiating repository analysis...');
+
+      const response = await requestAnalysis(url, githubToken, forceRefresh);
+
+      if (response.cached && response.analysisId && !forceRefresh) {
+        setJobProgress('done', 100, 'Loaded from cache!');
+        const data = await fetchAnalysisResult(response.analysisId);
+        setAnalysis(data);
+        return;
+      }
+
+      const jobId = response.jobId;
+
+      const applyUpdate = async (job: Awaited<ReturnType<typeof getJobStatus>>) => {
+        setJobProgress(job.status, job.progress, job.message, job.error);
+        if (job.status === 'done' && job.analysisId) {
+          closeJobStream.current?.();
+          const data = await fetchAnalysisResult(job.analysisId);
+          setAnalysis(data);
+        }
+      };
+
+      closeJobStream.current = subscribeToJob(jobId, applyUpdate, () => {
+        const interval = window.setInterval(async () => {
+          try {
+            const job = await getJobStatus(jobId);
+            await applyUpdate(job);
+            if (job.status === 'done' || job.status === 'error') clearInterval(interval);
+          } catch (err: any) {
+            clearInterval(interval);
+            setJobProgress('error', 0, 'Polling error', err.message);
+          }
+        }, 1200);
+      });
+    } catch (err: any) {
+      setJobProgress('error', 0, 'Connection failed', err?.response?.data?.error || err.message);
+    }
+  };
+
+  const handleExportPng = async () => {
+    try {
+      await exportCanvasAsPng(`${analysis?.repo || 'codebase'}-architecture.png`);
+    } catch (e: any) {
+      alert('Could not export PNG: ' + e.message);
+    }
+  };
+
+  const handleExportSvg = async () => {
+    try {
+      await exportCanvasAsSvg(`${analysis?.repo || 'codebase'}-architecture.svg`);
+    } catch (e: any) {
+      alert('Could not export SVG: ' + e.message);
+    }
+  };
+
+  const handleExportMermaid = async () => {
+    if (!analysis) return;
+    try {
+      let mmd = '';
+      const analysisId = analysis._id || analysis.id;
+      if (analysisId) mmd = await fetchMermaidExport(analysisId);
+      if (!mmd) {
+        mmd = `graph TD\n`;
+        analysis.nodes.slice(0, 50).forEach(n => {
+          n.imports.forEach(imp => {
+            mmd += `  ${n.label.replace(/\./g, '_')} --> ${imp.split('/').pop()?.replace(/\./g, '_')}\n`;
+          });
+        });
+      }
+      navigator.clipboard.writeText(mmd);
+      downloadTextFile(mmd, `${analysis.repo}-architecture.mmd`);
+      alert('Mermaid diagram copied to clipboard & downloaded!');
+    } catch (e: any) {
+      alert('Error exporting Mermaid: ' + e.message);
+    }
+  };
+
+  const showWorkspace = analysis !== null && jobStatus === 'done';
+
+  return (
+    <div
+      className="h-screen w-screen overflow-hidden flex flex-col font-sans"
+      style={{ backgroundColor: 'var(--bg)', color: 'var(--text-primary)' }}
+    >
+      {showWorkspace ? (
+        <>
+          <TopBar
+            onExportPng={handleExportPng}
+            onExportSvg={handleExportSvg}
+            onExportMermaid={handleExportMermaid}
+            onReanalyze={() => analysis && handleAnalyze(analysis.repoUrl, true)}
+          />
+          <div className="flex-1 flex overflow-hidden">
+            <LeftSidebar />
+            <main className="flex-1 flex flex-col relative overflow-hidden">
+              <GraphCanvas />
+            </main>
+            <RightDetailsPanel />
+          </div>
+          <CommandPalette />
+        </>
+      ) : (
+        <LandingPage onAnalyze={handleAnalyze} />
+      )}
+
+      {/* Global Modals */}
+      <HistoryModal />
+      <PatModal />
+    </div>
+  );
+};
+
+export default App;

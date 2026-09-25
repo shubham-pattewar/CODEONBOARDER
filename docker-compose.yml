@@ -1,0 +1,49 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: codebase-onboarder-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: codebase-onboarder-server
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - NODE_ENV=production
+      - CLIENT_URL=http://localhost:5173
+      - MONGODB_URI=mongodb://mongodb:27017/codebase-onboarder
+      - MAX_REPO_SIZE_MB=60
+      - MAX_PARSED_FILES=1000
+      - CLONE_TIMEOUT_MS=30000
+      - LLM_API_KEY=${LLM_API_KEY:-}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: codebase-onboarder-client
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - server
+
+volumes:
+  mongo-data:
