@@ -1,7 +1,29 @@
 import axios from 'axios';
 import type { AnalysisResult } from '../types';
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:4000/api';
+function normalizeUrl(url: string): string {
+  let cleaned = url.replace(/\/+$/, '');
+  if (!cleaned.endsWith('/api')) {
+    cleaned = `${cleaned}/api`;
+  }
+  return cleaned;
+}
+
+export function getApiBase(): string {
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('co_custom_api_base')?.trim();
+    if (custom) return normalizeUrl(custom);
+  }
+
+  const envBase = (import.meta as any).env?.VITE_API_BASE?.trim();
+  if (envBase) {
+    return normalizeUrl(envBase);
+  }
+
+  return 'http://localhost:4000/api';
+}
+
+export const API_BASE = getApiBase();
 
 export const apiClient = axios.create({
   baseURL: API_BASE,

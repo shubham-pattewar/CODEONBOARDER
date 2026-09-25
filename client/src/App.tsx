@@ -8,7 +8,7 @@ import { GraphCanvas } from './components/canvas/GraphCanvas';
 import { CommandPalette } from './components/layout/CommandPalette';
 import { HistoryModal } from './components/layout/HistoryModal';
 import { PatModal } from './components/layout/PatModal';
-import { requestAnalysis, getJobStatus, fetchAnalysisResult, fetchMermaidExport, subscribeToJob } from './api/client';
+import { requestAnalysis, getJobStatus, fetchAnalysisResult, fetchMermaidExport, subscribeToJob, API_BASE } from './api/client';
 import { exportCanvasAsPng, exportCanvasAsSvg, downloadTextFile } from './utils/exportDiagram';
 
 export const App: React.FC = () => {
@@ -98,7 +98,20 @@ export const App: React.FC = () => {
         }, 1200);
       });
     } catch (err: any) {
-      setJobProgress('error', 0, 'Connection failed', err?.response?.data?.error || err.message);
+      const errorMsg = err?.response?.data?.error || err.message;
+      const isLocalhostOnProd = typeof window !== 'undefined' && 
+        window.location.hostname !== 'localhost' && 
+        API_BASE.includes('localhost');
+
+      let userMsg = errorMsg;
+      if (isLocalhostOnProd) {
+        userMsg = `Frontend is currently pointing to http://localhost:4000 instead of your deployed Render backend. Add VITE_API_BASE=https://<your-render-url>/api in Vercel settings and Redeploy.`;
+      } else if (err.code === 'ERR_NETWORK' || errorMsg?.includes('Network Error')) {
+        userMsg = `Cannot connect to backend (${API_BASE}). If Render free tier was sleeping, it may take ~50 seconds to wake up. Please click "Try again".`;
+      } else if (err.code === 'ECONNABORTED' || errorMsg?.includes('timeout')) {
+        userMsg = `Backend request timed out. If Render free tier was sleeping, it is waking up now. Please click "Try again".`;
+      }
+      setJobProgress('error', 0, 'Connection failed', userMsg);
     }
   };
 
