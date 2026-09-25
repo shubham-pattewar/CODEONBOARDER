@@ -5,7 +5,7 @@ const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:40
 
 export const apiClient = axios.create({
   baseURL: API_BASE,
-  timeout: 45000,
+  timeout: 120000,
 });
 
 export async function requestAnalysis(
